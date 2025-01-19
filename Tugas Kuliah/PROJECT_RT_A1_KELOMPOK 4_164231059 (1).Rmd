@@ -1,0 +1,350 @@
+---
+title: "PROJECT_RT_A1_KELOMPOK 4_164231059"
+author: "Faiz Iqbal I'tishom"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import Library
+```{r}
+library(readxl)
+library(skedastic)
+library(lmtest)
+library(regclass)
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(nlme)
+library(ggpubr)
+library(boot)
+library(MASS)        
+library(robustbase)  
+library(caret)  
+library(leaps)
+```
+
+```{r}
+library(readr)
+data4 <- read_csv("data 4.csv")
+View(data4)
+```
+Subset Data
+```{r}
+y = data4$ISI
+x1 = data4$X
+x2 = data4$Y
+x3 = data4$month
+x4 = data4$day
+x5 = data4$FFMC
+x6 = data4$DMC
+x7 = data4$DC
+x8 = data4$temp
+x9 = data4$RH
+x10 = data4$wind
+x11 = data4$rain
+x12 = data4$area
+```
+
+Check Missing Value
+```{r}
+missing_summary <- sapply(data4, function(x) sum(is.na(x)))
+missing_percentage <- sapply(data4, function(x) mean(is.na(x)) * 100)
+missing_values <- data.frame(
+  Variable = names(missing_summary),
+  MissingCount = missing_summary,
+  MissingPercentage = missing_percentage
+)
+print("Summary of Missing Values:")
+print(missing_values)
+```
+
+Outlier dengan IQR
+```{r}
+detect_outliers <- function(column) {
+  Q1 <- quantile(column, 0.25, na.rm = TRUE)
+  Q3 <- quantile(column, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  sum(column < lower_bound | column > upper_bound, na.rm = TRUE)
+}
+
+outlier_summary <- sapply(data4, function(x) {
+  if (is.numeric(x)) detect_outliers(x) else NA
+})
+outliers <- data.frame(
+  Variable = names(outlier_summary),
+  OutlierCount = outlier_summary
+)
+print("Summary of Outliers:")
+print(outliers)
+```
+
+Outlier dengan Boxplot
+```{r}
+numeric_columns <- sapply(data4, is.numeric)
+numeric_data <- data4[, numeric_columns]
+
+boxplot_data <- data.frame(stack(numeric_data))
+names(boxplot_data) <- c("Value", "Variable")
+
+ggplot(boxplot_data, aes(x = Variable, y = Value)) +
+  geom_boxplot(outlier.color = "red", outlier.shape = 8) +
+  theme_minimal() +
+  labs(
+    title = "Boxplot of Variables with Outliers Highlighted",
+    x = "Variables",
+    y = "Values"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+Pemilihan Variabel dengan Best Subset
+```{r}
+data_subset <- data.frame(ISI = y, X = x1, Y = x2, month = x3, day = x4,
+                          FFMC = x5, DMC = x6, DC = x7, temp = x8, RH = x9,
+                          wind = x10, rain = x11, area = x12)
+
+# Remove rows with missing values (if any)
+data_subset <- na.omit(data_subset)
+
+# Perform Best Subset Selection
+best_subset <- regsubsets(ISI ~ ., data = data_subset, nvmax = 12)
+
+# Summary of Best Subset Selection
+subset_summary <- summary(best_subset)
+
+# Display metrics for each model size
+print("Metrics for Best Subset Selection:")
+metrics <- data.frame(
+  NumVariables = 1:length(subset_summary$cp),
+  Adjusted_R2 = subset_summary$adjr2,
+  Cp = subset_summary$cp,
+  BIC = subset_summary$bic
+)
+print(metrics)
+
+# Plot Adjusted R2, Cp, and BIC for different model sizes
+par(mfrow = c(1, 3))  # Arrange plots in 1 row, 3 columns
+
+# Adjusted R2 plot
+plot(metrics$NumVariables, metrics$Adjusted_R2, type = "b", pch = 19,
+     xlab = "Number of Variables", ylab = "Adjusted R2", main = "Adjusted R2")
+
+# Cp plot
+plot(metrics$NumVariables, metrics$Cp, type = "b", pch = 19,
+     xlab = "Number of Variables", ylab = "Cp", main = "Mallows' Cp")
+
+# BIC plot
+plot(metrics$NumVariables, metrics$BIC, type = "b", pch = 19,
+     xlab = "Number of Variables", ylab = "BIC", main = "Bayesian Information Criterion")
+
+# Highlight the best model
+```
+```{r}
+best_model_index <- which.max(subset_summary$adjr2)
+print(paste("Best model with", best_model_index, "variable(s):"))
+print(subset_summary$outmat[best_model_index, ])
+```
+
+Model OLS
+```{r}
+ols <- lm(y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12,  data = data4)
+ols
+summary(ols)
+```
+```{r}
+ols <- lm(y ~ x3 + x4 + x5 + x7 + x10,  data = data4)
+ols
+summary(ols)
+```
+
+Uji Homoskedastisitas
+```{r}
+glejser(ols)
+```
+
+Uji Autokorelasi
+```{r}
+dwtest(y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12, data = data4)
+```
+
+Uji Multikolinearitas
+```{r}
+VIF(ols)
+```
+Visualisasi Multikolinearitas dengan Heatmap
+```{r}
+numerik_data <- data4[sapply(data4, is.numeric)]
+cor_matrix <- cor(numerik_data, use = "complete.obs")
+```
+
+```{r}
+cor_data <- melt(cor_matrix)
+colnames(cor_data) <- c("Variable1", "Variable2", "Correlation")
+```
+
+```{r}
+heatmap_plot <- ggplot(cor_data, aes(x = Variable1, y = Variable2, fill = Correlation)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "#ffc54a", high = "#821716", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                       name = "Korelasi") +
+  geom_text(aes(label = round(Correlation, 2)), color = "black", size = 3) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(title = "Heatmap Korelasi", x = "Variabel", y = "Variabel")
+
+print(heatmap_plot)
+```
+
+Uji Normalitas
+```{r}
+residuals <- resid(ols)
+
+shapiro_test <- shapiro.test(residuals)
+print(shapiro_test)
+
+ggqqplot(residuals, title = "Q-Q Plot of Residuals")
+```
+**Transformasi Variabel**
+
+```{r}
+subset_data <- data.frame(
+  y, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12
+)
+
+# Convert categorical variables ('month' and 'day') to factors
+subset_data$x3 <- as.factor(subset_data$x3)
+subset_data$x4 <- as.factor(subset_data$x4)
+
+# Apply log transformation to continuous variables
+# Avoid log(0) by adding a small constant (e.g., 1e-6) if necessary
+subset_data$log_y <- log(subset_data$y + 1e-6)
+subset_data$log_x5 <- log(subset_data$x5 + 1e-6)
+subset_data$log_x6 <- log(subset_data$x6 + 1e-6)
+subset_data$log_x7 <- log(subset_data$x7 + 1e-6)
+subset_data$log_x8 <- log(subset_data$x8 + 1e-6)
+subset_data$log_x9 <- log(subset_data$x9 + 1e-6)
+subset_data$log_x10 <- log(subset_data$x10 + 1e-6)
+subset_data$log_x11 <- log(subset_data$x11 + 1e-6)
+subset_data$log_x12 <- log(subset_data$x12 + 1e-6)
+
+# Build the OLS regression model with transformed variables
+ols_model <- lm(
+  log_y ~ x1 + x2 + x3 + x4 + log_x5 + log_x6 + log_x7 + log_x8 + log_x9 + 
+          log_x10 + log_x11 + log_x12, 
+  data = subset_data
+)
+
+# Summarize the model
+summary(ols_model)
+
+# Plot diagnostics
+par(mfrow = c(2, 2)) # Arrange plots in a 2x2 grid
+plot(ols_model)
+```
+
+Subset data kembali untuk mempermudah pengujian GLS dan WLS
+```{r}
+y <- data4$ISI
+x1 <- data4$X
+x2 <- data4$Y
+x3 <- as.factor(data4$month)
+x4 <- as.factor(data4$day)
+x5 <- data4$FFMC
+x6 <- data4$DMC
+x7 <- data4$DC
+x8 <- data4$temp
+x9 <- data4$RH
+x10 <- data4$wind
+x11 <- data4$rain
+x12 <- data4$area
+
+subset_data <- data.frame(y, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12)
+```
+
+**Model GLS**
+```{r}
+model_gls <- gls(y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12, data = subset_data,
+                 method = "REML")  # Method 'REML' adalah default untuk estimasi parameter
+
+# Menampilkan ringkasan model GLS
+cat("Ringkasan model GLS:\n")
+summary(model_gls)
+
+# Memeriksa struktur residuals untuk mengevaluasi heteroskedastisitas
+cat("\nAnalisis residual:\n")
+plot(model_gls, which = 1:2)  # Grafik residual dan QQ plot
+
+```
+
+**Model WLS**
+```{r}
+model_ols <- lm(y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12, data = subset_data)
+residuals_ols <- abs(resid(model_ols))
+weights <- 1 / (residuals_ols^2) 
+model_wls <- lm(y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12, data = subset_data, weights = weights)
+summary(model_wls)
+```
+
+**Membandingkan AIC dan BIC antara model OLS, GLS, dan WLS**
+```{r}
+AIC(model_ols, model_gls, model_wls)
+BIC(model_ols, model_gls, model_wls)
+```
+
+**Regresi Robust**
+
+Estimasi-M
+```{r}
+EM <- rlm(y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12, method = "M")
+summary(EM)
+print(EM)
+```
+
+Estimasi-LTS
+```{r}
+subset_data <- data.frame(y, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12)
+
+subset_data$x3 <- as.factor(subset_data$x3)
+subset_data$x4 <- as.factor(subset_data$x4)
+
+lts_model <- ltsReg(y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12, data = subset_data)
+
+summary(lts_model)
+```
+
+Estimasi-S
+```{r}
+S <- lmrob(y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12, method = "S")
+summary(S)
+```
+
+```{r}
+VIF(S)
+```
+
+
+Uji Normalitas
+```{r}
+residuals <- resid(S)
+
+shapiro_test <- shapiro.test(residuals)
+print(shapiro_test)
+
+ggqqplot(residuals, title = "Q-Q Plot of Residuals")
+```
+
+
+Estimasi-MM
+```{r}
+MM <- lmrob(y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12, method ="MM")
+summary(MM)
+```
+
+
+**Kesimpulan**

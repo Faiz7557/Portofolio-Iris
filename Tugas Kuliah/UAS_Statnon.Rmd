@@ -1,0 +1,274 @@
+---
+title: "Statnon"
+author: "Faiz Iqbal I'tishom"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl)
+library(psych)
+library(nortest)
+library(ggplot2)
+library(Hmisc)
+library(reshape2)
+library(pheatmap)
+```
+
+```{r}
+data <- read_excel("C:/Users/Lenovo-MPL018/Downloads/Statnonpar/nonpar.xlsx")
+head(data)
+```
+
+```{r}
+summary(data)
+describe(data)
+```
+
+```{r}
+datauji = data[,2:7]
+datauji
+```
+
+```{r}
+datauji <- data.frame(lapply(datauji, function(x) as.numeric(as.character(x))))
+str(datauji)
+```
+
+```{r}
+rcorr(as.matrix(datauji), type = "pearson")
+```
+
+```{r}
+q1 = data$`Laju PDB`
+q2 = data$`PDB per Kapita`
+q3 = data$`Upah rata-rata`
+q4 = data$`Guru Lulusan Sarjana`
+q5 = data$`Guru Bersertifikat Pendidik`
+q6 = data $`Usia 15-24 tahun Neet`
+datauji1 = cbind.data.frame(q1,q2,q3,q4,q5,q6)
+datauji1
+```
+
+```{r}
+datauji1 <- data.frame(lapply(datauji1, function(x) as.numeric(as.character(x))))
+str(datauji1)
+```
+
+```{r}
+if (any(is.na(datauji1))) {
+  print("Terdapat nilai NA setelah konversi. Periksa data:")
+  print(datauji1[is.na(datauji1), ])
+} else {
+  print("Semua data berhasil dikonversi menjadi numerik.")
+}
+```
+
+```{r}
+datauji1 <- data.frame(lapply(datauji1, function(x) {
+  x <- gsub("[^0-9.]", "", as.character(x)) # Hapus simbol non-numerik
+  as.numeric(x)
+}))
+
+```
+
+```{r}
+reliabilitas <- psych::alpha(datauji1)
+print(reliabilitas)
+
+```
+
+```{r}
+library(ltm)
+reliabilitas_ltm <- cronbach.alpha(datauji1)
+print(reliabilitas_ltm)
+```
+
+```{r}
+matrix_data <- as.matrix(datauji)
+```
+
+```{r}
+
+pheatmap(matrix_data, 
+         scale = "column",                # Normalisasi per kolom
+         cluster_rows = TRUE,             # Kluster baris
+         cluster_cols = TRUE,             # Kluster kolom
+         display_numbers = TRUE,          # Tampilkan angka
+         fontsize_number = 8,             # Ukuran angka
+         color = colorRampPalette(c("blue", "white", "red"))(50))
+```
+
+```{r}
+shapiro <- lapply(datauji1, shapiro.test)
+shapiro
+```
+PDB 
+```{r}
+pdb <- read_excel("C:/Users/Lenovo-MPL018/Downloads/Statnonpar/PDB per kapita.xlsx")
+```
+
+
+```{r}
+pdbuji = pdb[,3:5]
+pdbuji
+```
+
+```{r}
+friedman_data <- as.matrix(pdb[ , -1])
+friedman_result <- friedman.test(friedman_data)
+print(friedman_result)
+```
+Kesimpulan: Tolak H0
+
+Kruskal
+```{r}
+subset_data <- data.frame(
+  Grup = rep(c("q1", "q2", "q3"), each = nrow(datauji1)),
+  Nilai = c(q1, q2, q3)
+)
+kruskal_test <- kruskal.test(Nilai ~ Grup, data = subset_data)
+print(kruskal_test)
+```
+Kesimpulan: Tolak H0
+
+Karena Tolak H0, maka dilakukan uji perbandingan ganda
+```{r}
+library(FSA)
+
+# Uji post-hoc Dunn
+posthoc_result <- dunnTest(Nilai, data = subset_data, method = "bonferroni")
+
+# Tampilkan hasil
+print(posthoc_result)
+
+```
+
+
+Uji Johnkheere-Terpstra
+```{r}
+library(clinfun)
+
+jt_result <- jonckheere.test(x = Nilai, y = Grup)
+
+# Tampilkan hasil
+print(jt_result)
+```
+Fridman
+```{r}
+# Load library
+library(PMCMRplus)
+
+# Data Anda (gunakan data dari uji Friedman sebelumnya)
+# Pastikan format data dalam matriks atau data frame
+friedman_data <- as.matrix(data[ , -1])  # Hilangkan kolom ID (jika ada)
+
+# Konversi data ke format long untuk post-hoc test
+friedman_long <- data.frame(
+  Subject = rep(1:nrow(friedman_data), ncol(friedman_data)),
+  Group = rep(colnames(friedman_data), each = nrow(friedman_data)),
+  Value = as.vector(t(friedman_data))
+)
+
+# Uji Friedman lagi dalam format long (opsional, untuk validasi)
+friedman_result <- friedman.test(Value ~ Group | Subject, data = friedman_long)
+
+# Post-hoc test menggunakan Nemenyi (alternatif pada data non-parametrik)
+posthoc_result <- frdAllPairsNemenyiTest(Value ~ Group | Subject, data = friedman_long)
+
+# Tampilkan hasil post-hoc test
+print(posthoc_result)
+```
+
+```{r}
+library(clinfun)
+
+# Subset data
+q1 <- data$`Laju PDB`
+q2 <- data$`PDB per Kapita`
+q3 <- data$`Upah rata-rata`
+
+# Gabungkan data menjadi satu frame untuk analisis
+subset_data <- data.frame(
+  Grup = rep(c("q1", "q2", "q3"), each = nrow(data)),
+  Nilai = c(q1, q2, q3)
+)
+
+# Mengurutkan grup untuk mendeteksi tren
+subset_data$Grup <- factor(subset_data$Grup, levels = c("q1", "q2", "q3"))
+
+# Uji Jonckheere-Terpstra
+jt_result <- jonckheere.test(subset_data$Nilai, as.numeric(subset_data$Grup))
+
+# Tampilkan hasil
+print(jt_result)
+```
+
+Uji Hipotesis k-sampel dependen
+
+```{r}
+library(readxl)
+upah <- read_excel("C:/Users/Lenovo-MPL018/Downloads/Statnonpar/upah.xlsx")
+```
+
+
+```{r}
+
+```
+
+
+Uji Page
+```{r}
+data_matrix <- as.matrix([ , -1])
+
+result <- pageTest(data_matrix)
+
+# Tampilkan hasil
+print(result)
+```
+
+Uji Korelasi
+
+```{r}
+datauji
+```
+
+
+Tau-Kendall
+```{r}
+data_selected <- datauji[, 1:3]
+
+cor_1_2 <- cor(data_selected[[1]], data_selected[[2]], method = "kendall")
+test_1_2 <- cor.test(data_selected[[1]], data_selected[[2]], method = "kendall")
+
+cor_1_3 <- cor(data_selected[[1]], data_selected[[3]], method = "kendall")
+test_1_3 <- cor.test(data_selected[[1]], data_selected[[3]], method = "kendall")
+
+cor_2_3 <- cor(data_selected[[2]], data_selected[[3]], method = "kendall")
+test_2_3 <- cor.test(data_selected[[2]], data_selected[[3]], method = "kendall")
+```
+
+
+```{r}
+cat("Korelasi Kolom 1 dengan 2:", cor_1_2, "\n")
+print(test_1_2)
+```
+
+
+```{r}
+cat("\nKorelasi Kolom 1 dengan 3:", cor_1_3, "\n")
+print(test_1_3)
+```
+
+```{r}
+cat("\nKorelasi Kolom 2 dengan 3:", cor_2_3, "\n")
+print(test_2_3)
+```
+
+
+
+
